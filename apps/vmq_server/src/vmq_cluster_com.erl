@@ -142,6 +142,8 @@ process_bytes(Bytes, Buffer, St) ->
             process(BFrames, St),
             process_bytes(Rest, <<>>, St);
         _ ->
+            %% if we have received something else than "vmq-send" we
+            %% will buffer everything unbounded forever and ever!
             {ok, NewBuffer}
     end.
 
@@ -166,7 +168,10 @@ process(<<"enq", L:32, Bin:L/binary, Rest/binary>>, St) ->
                   end
           end),
     process(Rest, St);
-process(<<>>, _) -> ok.
+process(<<>>, _) -> ok;
+process(<<Cmd:3/binary, L:32, _:L/binary, Rest/binary>>, St) ->
+    lager:warning("unknown message: ~p", [Cmd]),
+    process(Rest, St).
 
 publish({_, _} = SubscriberIdAndQoS, Msg) ->
     vmq_reg:publish(SubscriberIdAndQoS, Msg);
