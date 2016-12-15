@@ -268,6 +268,46 @@ register_session(SubscriberId, QueueOpts) ->
     SessionPresent = QueuePresent,
     {ok, SessionPresent, QPid}.
 
+publish(RegView, MP, Topic, FoldFun, Msg) ->
+    Acc = publish_fold_acc(Msg),
+    {NewMsg, SubscriberGroups} = vmq_reg_view:fold(RegView, MP, Topic, FoldFun, Acc),
+    publish_to_subscriber_groups(NewMsg, SubscriberGroups).
+
+publish_fold_acc(Msg) -> {Msg, undefined}.
+
+publish_to_subscriber_groups(_, undefined) -> ok;
+publish_to_subscriber_groups(Msg, SubscriberGroups) when is_map(SubscriberGroups) ->
+    publish_to_subscriber_groups(Msg, maps:to_list(SubscriberGroups));
+publish_to_subscriber_groups(_, []) -> ok;
+publish_to_subscriber_groups(Msg, [{Group, []}|Rest]) ->
+    lager:warning("can't publish to subscriber group ~p due to no subscriber available", [Group]),
+    publish_to_subscriber_groups(Msg, Rest);
+publish_to_subscriber_groups(Msg, [{Group, SubscriberGroup}|Rest]) ->
+    NewMsg = Msg,
+    N = rnd:uniform(length(SubscriberGroup)),
+    case lists:nth(N, SubscriberGroup) of
+        {Node, SubscriberId, QoS} = Sub when Node == node() ->
+            case get_queue_pid(SubscriberId) of
+                not_found ->
+                    NewSubscriberGroup = lists:delete(Sub, SubscriberGroup),
+                    %% retry with other members of this group
+                    publish_to_subscriber_groups(NewMsg, [{Group, NewSubscriberGroup}|Rest]);
+                QPid ->
+                    ok = vmq_queue:enqueue(QPid, {deliver, QoS, NewMsg}),
+                    publish_to_subscriber_groups(NewMsg, Rest)
+            end;
+        {Node, SubscriberId, _} = Sub ->
+            case vmq_cluster:remote_enqueue_sync(Node, SubscriberId, NewMsg, []) of
+                ok ->
+                    publish_to_subscriber_groups(NewMsg, Rest);
+                {error, Reason} ->
+                    lager:warning("can't publish for subscriber group to remote node ~p due to '~p'", [Node, Reason]),
+                    NewSubscriberGroup = lists:delete(Sub, SubscriberGroup),
+                    %% retry with other members of this group
+                    publish_to_subscriber_groups(NewMsg, [{Group, NewSubscriberGroup}|Rest])
+            end
+    end.
+
 -spec publish(flag(), module(), msg()) -> 'ok' | {'error', _}.
 publish(true, RegView, #vmq_msg{mountpoint=MP,
                                 routing_key=Topic,
@@ -280,15 +320,16 @@ publish(true, RegView, #vmq_msg{mountpoint=MP,
         true when Payload == <<>> ->
             %% retain delete action
             vmq_retain_srv:delete(MP, Topic),
-            vmq_reg_view:fold(RegView, MP, Topic, fun publish/2, Msg#vmq_msg{retain=false}),
+            
+            publish(RegView, MP, Topic, fun publish/2, Msg#vmq_msg{retain=false}),
             ok;
         true ->
             %% retain set action
             vmq_retain_srv:insert(MP, Topic, Payload),
-            vmq_reg_view:fold(RegView, MP, Topic, fun publish/2, Msg#vmq_msg{retain=false}),
+            publish(RegView, MP, Topic, fun publish/2, Msg#vmq_msg{retain=false}),
             ok;
         false ->
-            vmq_reg_view:fold(RegView, MP, Topic, fun publish/2, Msg),
+            publish(RegView, MP, Topic, fun publish/2, Msg),
             ok
     end;
 publish(false, RegView, #vmq_msg{mountpoint=MP,
@@ -300,38 +341,51 @@ publish(false, RegView, #vmq_msg{mountpoint=MP,
         true when (IsRetain == true) and (Payload == <<>>) ->
             %% retain delete action
             vmq_retain_srv:delete(MP, Topic),
-            vmq_reg_view:fold(RegView, MP, Topic, fun publish/2, Msg#vmq_msg{retain=false}),
+            publish(RegView, MP, Topic, fun publish/2, Msg#vmq_msg{retain=false}),
             ok;
         true when (IsRetain == true) ->
             %% retain set action
             vmq_retain_srv:insert(MP, Topic, Payload),
-            vmq_reg_view:fold(RegView, MP, Topic, fun publish/2, Msg#vmq_msg{retain=false}),
+            publish(RegView, MP, Topic, fun publish/2, Msg#vmq_msg{retain=false}),
             ok;
         true ->
-            vmq_reg_view:fold(RegView, MP, Topic, fun publish/2, Msg),
+            publish(RegView, MP, Topic, fun publish/2, Msg),
             ok;
         false ->
             {error, not_ready}
     end.
 
 %% publish/2 is used as the fold function in RegView:fold/4
-publish({SubscriberId, QoS}, Msg) ->
+publish({{_,_} = SubscriberId, QoS}, {Msg, _} = Acc) ->
     case get_queue_pid(SubscriberId) of
-        not_found -> Msg;
+        not_found -> Acc;
         QPid ->
             ok = vmq_queue:enqueue(QPid, {deliver, QoS, Msg}),
-            Msg
+            Acc
     end;
-publish(Node, Msg) ->
+publish({{_Group, _Node, _SubscriberId}, _QoS} = Sub, {Msg, SubscriberGroups}) ->
+    %% collect subscriber group members for later processing
+    {Msg, add_to_subscriber_group(Sub, SubscriberGroups)};
+publish(Node, {Msg, _} = Acc) ->
     case vmq_cluster:publish(Node, Msg) of
         ok ->
-            Msg;
+            Acc;
         {error, Reason} ->
             lager:warning("can't publish to remote node ~p due to '~p'", [Node, Reason]),
-            Msg
+            Acc
     end.
 
+add_to_subscriber_group(Sub, undefined) ->
+    add_to_subscriber_group(Sub, #{});
+add_to_subscriber_group({{Group, Node, SubscriberId}, QoS}, SubscriberGroups) ->
+    SubscriberGroup = maps:get(Group, SubscriberGroups, []),
+    maps:put(Group, [{Node, SubscriberId, QoS}|SubscriberGroup],
+             SubscriberGroups).
+
 -spec deliver_retained(subscriber_id(), topic(), qos()) -> 'ok'.
+deliver_retained(_SubscriberId, [<<"$share">>|_], _QoS) ->
+    %% Never deliver retained messages to subscriber groups.
+    ok;
 deliver_retained({MP, _} = SubscriberId, Topic, QoS) ->
     QPid = get_queue_pid(SubscriberId),
     vmq_retain_srv:match_fold(

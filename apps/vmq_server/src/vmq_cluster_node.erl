@@ -19,6 +19,7 @@
 -export([start_link/1,
          publish/2,
          enqueue/2,
+         enqueue_sync/2,
          connect_params/1]).
 
 %% gen_server callbacks
@@ -59,6 +60,18 @@ enqueue(Pid, Term) ->
     Ref = make_ref(),
     MRef = monitor(process, Pid),
     Pid ! {enq, self(), Ref, Term},
+    receive
+        {Ref, Reply} ->
+            demonitor(MRef, [flush]),
+            Reply;
+        {'DOWN', MRef, process, Pid, Reason} ->
+            {error, Reason}
+    end.
+
+enqueue_sync(Pid, Term) ->
+    Ref = make_ref(),
+    MRef = monitor(process, Pid),
+    Pid ! {enq_sync, self(), Ref, Term},
     receive
         {Ref, Reply} ->
             demonitor(MRef, [flush]),
@@ -137,6 +150,19 @@ handle_message({msg, CallerPid, Ref, Msg}, State) ->
             CallerPid ! {Ref, {error, msg_dropped}};
         false ->
             CallerPid ! {Ref, ok}
+    end,
+    NewState;
+handle_message({enq_sync, CallerPid, Ref, Term}, State) ->
+    Bin = term_to_binary({CallerPid, Ref, Term}),
+    L = byte_size(Bin),
+    BinMsg = <<"ens", L:32, Bin/binary>>,
+    {Dropped, NewState} = buffer_message(BinMsg, State),
+    case Dropped > 0 of
+        true ->
+            CallerPid ! {Ref, {error, msg_dropped}};
+        false ->
+            %% reply directly from other node
+            ignore
     end,
     NewState;
 handle_message({NetEv, _}, #state{reconnect_tref=TRef} = State)

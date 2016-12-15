@@ -210,6 +210,10 @@ handle_event(Handler, Event) ->
             ok
     end.
 
+handle_delete_event({[<<"$share">>, Group|Topic], QoS, Node}, {MP, _} = SubscriberId) ->
+    del_topic(MP, Topic, Node),
+    del_subscriber(MP, Topic, {Group, Node, SubscriberId}, QoS),
+    SubscriberId;
 handle_delete_event({Topic, QoS, Node}, {MP, _} = SubscriberId) when Node == node() ->
     del_topic(MP, Topic, Node),
     del_subscriber(MP, Topic, SubscriberId, QoS),
@@ -218,6 +222,10 @@ handle_delete_event({Topic, _, Node}, {MP, _} = SubscriberId) ->
     del_topic(MP, Topic, Node),
     SubscriberId.
 
+handle_add_event({[<<"$share">>, Group|Topic], QoS, Node}, {MP, _} = SubscriberId) ->
+    add_topic(MP, Topic, Node),
+    add_subscriber(MP, Topic, {Group, Node, SubscriberId}, QoS),
+    SubscriberId;
 handle_add_event({Topic, QoS, Node}, {MP, _} = SubscriberId) when Node == node() ->
     add_topic(MP, Topic, Node),
     add_subscriber(MP, Topic, SubscriberId, QoS),

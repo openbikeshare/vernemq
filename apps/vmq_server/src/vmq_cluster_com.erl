@@ -168,6 +168,27 @@ process(<<"enq", L:32, Bin:L/binary, Rest/binary>>, St) ->
                   end
           end),
     process(Rest, St);
+process(<<"ens", L:32, Bin:L/binary, Rest/binary>>, St) ->
+    {CallerPid, Ref, {enq_opts, SubscriberId, Msgs, _Opts}} = binary_to_term(Bin),
+    %% enqueue in own process context
+    %% to ensure that this won't block
+    %% the cluster communication.
+    spawn(fun() ->
+                  try
+                      case vmq_queue_sup_sup:get_queue_pid(SubscriberId) of
+                          QueuePid when is_pid(QueuePid) ->
+                              %% TODO, maybe replace with dedicated
+                              %% sync function - and maybe also call
+                              %% the message something else.
+                              Reply = vmq_queue:enqueue_many(QueuePid, Msgs),
+                              CallerPid ! {Ref, Reply}
+                      end
+                  catch
+                      _:_ ->
+                          CallerPid ! {Ref, {error, cant_remote_enqueue}}
+                  end
+          end),
+    process(Rest, St);
 process(<<>>, _) -> ok;
 process(<<Cmd:3/binary, L:32, _:L/binary, Rest/binary>>, St) ->
     lager:warning("unknown message: ~p", [Cmd]),

@@ -31,7 +31,8 @@
          if_ready/2,
          if_ready/3,
          publish/2,
-         remote_enqueue/2]).
+         remote_enqueue/2,
+         remote_enqueue_sync/4]).
 
 -define(SERVER, ?MODULE).
 -define(VMQ_CLUSTER_STATUS, vmq_status). %% table is owned by vmq_cluster_mon
@@ -88,6 +89,15 @@ publish(Node, Msg) ->
             {error, not_found};
         {ok, Pid} ->
             vmq_cluster_node:publish(Pid, Msg)
+    end.
+
+remote_enqueue_sync(Node, SubscriberId, Msg, Opts) ->
+    case vmq_cluster_node_sup:get_cluster_node(Node) of
+        {error, not_found} ->
+            {error, not_found};
+        {ok, Pid} ->
+            Term = {enq_opts, SubscriberId, [Msg], Opts},
+            vmq_cluster_node:enqueue_sync(Pid, Term)
     end.
 
 remote_enqueue(Node, Term) ->

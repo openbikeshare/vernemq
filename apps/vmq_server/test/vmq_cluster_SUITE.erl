@@ -14,7 +14,8 @@
          racing_connect_test/1,
          racing_subscriber_test/1,
          cluster_leave_test/1,
-         cluster_leave_dead_node_test/1]).
+         cluster_leave_dead_node_test/1,
+         subscriber_groups_test/1]).
 
 -export([hook_uname_password_success/5,
          hook_auth_on_publish/6,
@@ -69,12 +70,13 @@ end_per_testcase(_, _Config) ->
 
 all() ->
     [multiple_connect_test
-     ,multiple_connect_unclean_test
-     , distributed_subscribe_test
-     , racing_connect_test
-     , racing_subscriber_test
-     , cluster_leave_test
-     , cluster_leave_dead_node_test].
+    ,multiple_connect_unclean_test
+    ,distributed_subscribe_test
+    ,racing_connect_test
+    ,racing_subscriber_test
+    ,cluster_leave_test
+    ,cluster_leave_dead_node_test
+    ,subscriber_groups_test].
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -417,6 +419,73 @@ cluster_leave_dead_node_test(Config) ->
                               fun(N) ->
                                       rpc:call(N, vmq_queue_sup_sup, summary, [])
                               end, {0, 0, 0, 5, 0}).
+
+
+subscriber_groups_test(Config) ->
+    ensure_cluster(Config),
+    {_, Nodes} = lists:keyfind(nodes, 1, Config),
+    [{_, Port} | _] = Nodes,
+
+    Disconnect = packet:gen_disconnect(),
+    SubscriberGroup = <<"$share:sharename/sharedtopic">>,
+    Subscribers =
+        [begin
+             Connect = packet:gen_connect("sg-subscriber-" ++ integer_to_list(I),
+                                      [{keepalive, 60}, {clean_session, true}]),
+             Connack = packet:gen_connack(0),
+             Subscribe = packet:gen_subscribe(1, [SubscriberGroup], 1),
+             Suback = packet:gen_suback(1, 1),
+             %% TODO: make it connect to random node instead
+             {ok, Socket} = packet:do_client_connect(Connect, Connack, [{port, Port}]),
+             ok = gen_tcp:send(Socket, Subscribe),
+             ok = packet:expect_packet(Socket, "suback", Suback),
+             Socket
+         end || I <- lists:seq(1,10)],
+
+    %% Make sure subscriptions have propagated to all nodes
+    ok = wait_until_converged(Nodes,
+                              fun(N) ->
+                                      rpc:call(N, vmq_reg, total_subscriptions, [])
+                              end, [{total, 10}]),
+
+    %% publish to shared topic
+    Connect = packet:gen_connect("sg-publisher",
+                                 [{keepalive, 60}, {clean_session, true}]),
+    Connack = packet:gen_connack(0),
+    {ok, Socket} = packet:do_client_connect(Connect, Connack, [{port, Port}]),
+    Payloads = 
+        [begin
+             Payload = vmq_test_utils:rand_bytes(rnd:uniform(10)),
+             Publish = packet:gen_publish(<<"sharedtopic">>, 1, Payload, [{mid, I}]),
+             Puback = packet:gen_puback(I),
+             ok = gen_tcp:send(Socket, Publish),
+             ok = packet:expect_packet(Socket, "puback", Puback),
+             {I, Payload}
+         end || I <- lists:seq(1,10)],
+    ok = gen_tcp:send(Socket, Disconnect),
+    ok = gen_tcp:close(Socket),
+    io:format(user, "Payloads ~p~n", [Payloads]),
+
+    %% receive on subscriber sockets.
+    receive_subscriber_group_messages(Subscribers, Payloads),
+    
+    %% cleanup
+    [ ok = gen_tcp:close(S) || S <- Subscribers ],
+    ok.
+    
+receive_subscriber_group_messages([], []) ->
+    ok;
+receive_subscriber_group_messages([Socket|RestSockets], Payloads) ->
+    io:format(user, "Receiving on socket: ~p~n", [Socket]),
+    {ok, #mqtt_publish{message_id=MsgId, payload=Payload}}
+        = recv(Socket, <<>>),
+    P = {MsgId, Payload},
+    io:format(user, "Received: ~p~n", [P]),
+    true = lists:member(P, Payloads),
+    receive_subscriber_group_messages(RestSockets, Payloads -- P).
+            
+
+    
 
 publish(Nodes, NrOfProcesses, NrOfMsgsPerProcess) ->
     publish(self(), Nodes, NrOfProcesses, NrOfMsgsPerProcess, []).
