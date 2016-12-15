@@ -55,12 +55,18 @@ start_link() ->
 fold(MP, Topic, FoldFun, Acc) when is_list(Topic) ->
     fold_(MP, FoldFun, Acc, match(MP, Topic)).
 
-fold_(MP, FoldFun, Acc, [{Topic, Node}|MatchedTopics]) when Node == node() ->
+fold_(MP, FoldFun, Acc, [{Topic, {_Node, SubscriberGroup}}|MatchedTopics])
+  when SubscriberGroup =/= undefined->
     fold_(MP, FoldFun,
           fold__(FoldFun, Acc,
                  ets:lookup(vmq_trie_subs, {MP, Topic})),
           MatchedTopics);
-fold_(MP, FoldFun, Acc, [{_Topic, Node}|MatchedTopics]) ->
+fold_(MP, FoldFun, Acc, [{Topic, {Node, undefined}}|MatchedTopics]) when Node == node() ->
+    fold_(MP, FoldFun,
+          fold__(FoldFun, Acc,
+                 ets:lookup(vmq_trie_subs, {MP, Topic})),
+          MatchedTopics);
+fold_(MP, FoldFun, Acc, [{_Topic, {Node, _}}|MatchedTopics]) ->
     fold_(MP, FoldFun, FoldFun(Node, Acc), MatchedTopics);
 fold_(_, _, Acc, []) -> Acc.
 
@@ -211,27 +217,27 @@ handle_event(Handler, Event) ->
     end.
 
 handle_delete_event({[<<"$share">>, Group|Topic], QoS, Node}, {MP, _} = SubscriberId) ->
-    del_topic(MP, Topic, Node),
+    del_topic(MP, Topic, {Node, Group}),
     del_subscriber(MP, Topic, {Group, Node, SubscriberId}, QoS),
     SubscriberId;
 handle_delete_event({Topic, QoS, Node}, {MP, _} = SubscriberId) when Node == node() ->
-    del_topic(MP, Topic, Node),
+    del_topic(MP, Topic, {Node, undefined}),
     del_subscriber(MP, Topic, SubscriberId, QoS),
     SubscriberId;
 handle_delete_event({Topic, _, Node}, {MP, _} = SubscriberId) ->
-    del_topic(MP, Topic, Node),
+    del_topic(MP, Topic, {Node, undefined}),
     SubscriberId.
 
 handle_add_event({[<<"$share">>, Group|Topic], QoS, Node}, {MP, _} = SubscriberId) ->
-    add_topic(MP, Topic, Node),
+    add_topic(MP, Topic, {Node, Group}),
     add_subscriber(MP, Topic, {Group, Node, SubscriberId}, QoS),
     SubscriberId;
 handle_add_event({Topic, QoS, Node}, {MP, _} = SubscriberId) when Node == node() ->
-    add_topic(MP, Topic, Node),
+    add_topic(MP, Topic, {Node, undefined}),
     add_subscriber(MP, Topic, SubscriberId, QoS),
     SubscriberId;
 handle_add_event({Topic, _, Node}, {MP, _} = SubscriberId) ->
-    add_topic(MP, Topic, Node),
+    add_topic(MP, Topic, {Node, undefined}),
     SubscriberId.
 
 
@@ -283,7 +289,7 @@ add_topic(MP, Topic, Node) ->
                     maps:put(Node, Cnt + 1, NodeMap)
             end,
             ets:insert(vmq_trie_topic, {MPTopic, TotalCnt + 1, NewNodeMap,
-                                        [N || {N, _} <- maps:to_list(NewNodeMap)]})
+                                        [N || {{N,_}, _} <- maps:to_list(NewNodeMap)]})
     end,
 
     case ets:lookup(vmq_trie_node, MPTopic) of
