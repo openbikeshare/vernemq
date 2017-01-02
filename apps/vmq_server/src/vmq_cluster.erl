@@ -91,12 +91,12 @@ publish(Node, Msg) ->
             vmq_cluster_node:publish(Pid, Msg)
     end.
 
-remote_enqueue_sync(Node, SubscriberId, Msg, Opts) ->
+remote_enqueue_sync(Node, SubscriberId, Msgs, Opts) ->
     case vmq_cluster_node_sup:get_cluster_node(Node) of
         {error, not_found} ->
             {error, not_found};
         {ok, Pid} ->
-            Term = {enq_opts, SubscriberId, [Msg], Opts},
+            Term = {enq_opts, SubscriberId, Msgs, Opts},
             vmq_cluster_node:enqueue_sync(Pid, Term)
     end.
 

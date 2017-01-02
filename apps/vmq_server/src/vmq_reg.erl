@@ -296,8 +296,8 @@ publish_to_subscriber_groups(Msg, [{Group, SubscriberGroup}|Rest]) ->
                     ok = vmq_queue:enqueue(QPid, {deliver, QoS, NewMsg}),
                     publish_to_subscriber_groups(NewMsg, Rest)
             end;
-        {Node, SubscriberId, _} = Sub ->
-            case vmq_cluster:remote_enqueue_sync(Node, SubscriberId, NewMsg, []) of
+        {Node, SubscriberId, QoS} = Sub ->
+            case vmq_cluster:remote_enqueue_sync(Node, SubscriberId, [{deliver, QoS, NewMsg}], [opts]) of
                 ok ->
                     publish_to_subscriber_groups(NewMsg, Rest);
                 {error, Reason} ->
@@ -363,7 +363,7 @@ publish({{_,_} = SubscriberId, QoS}, {Msg, _} = Acc) ->
             ok = vmq_queue:enqueue(QPid, {deliver, QoS, Msg}),
             Acc
     end;
-publish({{_Group, _Node, _SubscriberId}, _QoS} = Sub, {Msg, SubscriberGroups}) ->
+publish({_Node, _Group, _SubscriberId, _QoS} = Sub, {Msg, SubscriberGroups}) ->
     %% collect subscriber group members for later processing
     {Msg, add_to_subscriber_group(Sub, SubscriberGroups)};
 publish(Node, {Msg, _} = Acc) ->
@@ -377,7 +377,7 @@ publish(Node, {Msg, _} = Acc) ->
 
 add_to_subscriber_group(Sub, undefined) ->
     add_to_subscriber_group(Sub, #{});
-add_to_subscriber_group({{Group, Node, SubscriberId}, QoS}, SubscriberGroups) ->
+add_to_subscriber_group({Node, Group, SubscriberId, QoS}, SubscriberGroups) ->
     SubscriberGroup = maps:get(Group, SubscriberGroups, []),
     maps:put(Group, [{Node, SubscriberId, QoS}|SubscriberGroup],
              SubscriberGroups).
