@@ -14,6 +14,8 @@
 
 -module(vmq_cluster).
 
+-include_lib("vmq_commons/include/vmq_types.hrl").
+
 -behaviour(gen_event).
 
 %% gen_server callbacks
@@ -31,8 +33,7 @@
          if_ready/2,
          if_ready/3,
          publish/2,
-         remote_enqueue/2,
-         remote_enqueue_sync/4]).
+         remote_enqueue/2]).
 
 -define(SERVER, ?MODULE).
 -define(VMQ_CLUSTER_STATUS, vmq_status). %% table is owned by vmq_cluster_mon
@@ -91,15 +92,10 @@ publish(Node, Msg) ->
             vmq_cluster_node:publish(Pid, Msg)
     end.
 
-remote_enqueue_sync(Node, SubscriberId, Msgs, Opts) ->
-    case vmq_cluster_node_sup:get_cluster_node(Node) of
-        {error, not_found} ->
-            {error, not_found};
-        {ok, Pid} ->
-            Term = {enq_opts, SubscriberId, Msgs, Opts},
-            vmq_cluster_node:enqueue_sync(Pid, Term)
-    end.
-
+-spec remote_enqueue(node(), Term)
+        -> {ok, pid()} | {error, term()}
+        when Term::{enq_sync, subscriber_id(), Msgs::term(), Opts::list()}
+                 | {enqueue, Queue::term(), Msgs::term()}.
 remote_enqueue(Node, Term) ->
     case vmq_cluster_node_sup:get_cluster_node(Node) of
         {error, not_found} ->

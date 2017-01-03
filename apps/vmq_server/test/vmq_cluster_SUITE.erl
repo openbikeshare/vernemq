@@ -76,7 +76,8 @@ all() ->
     ,racing_subscriber_test
     ,cluster_leave_test
     ,cluster_leave_dead_node_test
-    ,subscriber_groups_test].
+    %% ,subscriber_groups_test
+    ].
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

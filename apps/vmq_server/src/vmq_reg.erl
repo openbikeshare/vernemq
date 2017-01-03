@@ -297,7 +297,8 @@ publish_to_subscriber_groups(Msg, [{Group, SubscriberGroup}|Rest]) ->
                     publish_to_subscriber_groups(NewMsg, Rest)
             end;
         {Node, SubscriberId, QoS} = Sub ->
-            case vmq_cluster:remote_enqueue_sync(Node, SubscriberId, [{deliver, QoS, NewMsg}], [opts]) of
+            Term = {enq_sync, SubscriberId, [{deliver, QoS, NewMsg}], [opts]},
+            case vmq_cluster:remote_enqueue(Node, Term) of
                 ok ->
                     publish_to_subscriber_groups(NewMsg, Rest);
                 {error, Reason} ->
