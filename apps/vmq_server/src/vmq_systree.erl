@@ -124,7 +124,8 @@ handle_info(timeout, true) ->
             lists:foreach(
               fun({_Type, Metric, Val}) ->
                       CAPPublish = true,
-                      vmq_reg:publish(CAPPublish, RegView, MsgTmpl#vmq_msg{
+                      SGPolicy = random,
+                      vmq_reg:publish(CAPPublish, SGPolicy, RegView, MsgTmpl#vmq_msg{
                                         routing_key=key(Prefix, Metric),
                                         payload=val(Val),
                                         msg_ref=vmq_mqtt_fsm:msg_ref()

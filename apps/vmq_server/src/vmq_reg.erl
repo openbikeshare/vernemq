@@ -24,7 +24,7 @@
          register_subscriber/4, %% used during testing
          delete_subscriptions/1,
          %% used in mqtt fsm handling
-         publish/3,
+         publish/4,
 
          %% used in :get_info/2
          get_session_pids/1,
@@ -268,50 +268,63 @@ register_session(SubscriberId, QueueOpts) ->
     SessionPresent = QueuePresent,
     {ok, SessionPresent, QPid}.
 
-publish(RegView, MP, Topic, FoldFun, Msg) ->
+publish(RegView, SGPolicy, MP, Topic, FoldFun, Msg) ->
     Acc = publish_fold_acc(Msg),
     {NewMsg, SubscriberGroups} = vmq_reg_view:fold(RegView, MP, Topic, FoldFun, Acc),
-    publish_to_subscriber_groups(NewMsg, SubscriberGroups).
+    publish_to_subscriber_groups(NewMsg, SGPolicy, SubscriberGroups).
 
 publish_fold_acc(Msg) -> {Msg, undefined}.
 
-publish_to_subscriber_groups(_, undefined) -> ok;
-publish_to_subscriber_groups(Msg, SubscriberGroups) when is_map(SubscriberGroups) ->
-    publish_to_subscriber_groups(Msg, maps:to_list(SubscriberGroups));
-publish_to_subscriber_groups(_, []) -> ok;
-publish_to_subscriber_groups(Msg, [{Group, []}|Rest]) ->
-    lager:warning("can't publish to subscriber group ~p due to no subscriber available", [Group]),
-    publish_to_subscriber_groups(Msg, Rest);
-publish_to_subscriber_groups(Msg, [{Group, SubscriberGroup}|Rest]) ->
-    NewMsg = Msg,
-    N = rnd:uniform(length(SubscriberGroup)),
-    case lists:nth(N, SubscriberGroup) of
+publish_to_subscriber_groups(_,_, undefined) -> ok;
+publish_to_subscriber_groups(Msg, Policy, SubscriberGroups) when is_map(SubscriberGroups) ->
+    publish_to_subscriber_groups(Msg, Policy, maps:to_list(SubscriberGroups));
+publish_to_subscriber_groups(_,_, []) -> ok;
+publish_to_subscriber_groups(Msg, Policy, [{Group, []}|Rest]) ->
+    lager:info("can't publish to subscriber group ~p due to no subscriber available", [Group]),
+    publish_to_subscriber_groups(Msg, Policy, Rest);
+publish_to_subscriber_groups(Msg, Policy, [{Group, SubscriberGroup}|Rest]) ->
+    Subscribers = filter_subscribers(SubscriberGroup, Policy),
+    N = rnd:uniform(length(Subscribers)),
+    case lists:nth(N, Subscribers) of
         {Node, SubscriberId, QoS} = Sub when Node == node() ->
             case get_queue_pid(SubscriberId) of
                 not_found ->
                     NewSubscriberGroup = lists:delete(Sub, SubscriberGroup),
                     %% retry with other members of this group
-                    publish_to_subscriber_groups(NewMsg, [{Group, NewSubscriberGroup}|Rest]);
+                    publish_to_subscriber_groups(Msg, Policy, [{Group, NewSubscriberGroup}|Rest]);
                 QPid ->
-                    ok = vmq_queue:enqueue(QPid, {deliver, QoS, NewMsg}),
-                    publish_to_subscriber_groups(NewMsg, Rest)
+                    ok = vmq_queue:enqueue(QPid, {deliver, QoS, Msg}),
+                    publish_to_subscriber_groups(Msg, Policy, Rest)
             end;
         {Node, SubscriberId, QoS} = Sub ->
-            Term = {enqueue_many, SubscriberId, [{deliver, QoS, NewMsg}], #{states => [online]}},
+            Term = {enqueue_many, SubscriberId, [{deliver, QoS, Msg}], #{states => [online]}},
             case vmq_cluster:remote_enqueue(Node, Term) of
                 ok ->
-                    publish_to_subscriber_groups(NewMsg, Rest);
+                    publish_to_subscriber_groups(Msg, Policy, Rest);
                 {error, Reason} ->
-                    lager:warning("can't publish for subscriber group to remote node ~p due to '~p'",
+                    lager:warning("can't publish to subscriber group on remote node ~p due to '~p'",
                                   [Node, Reason]),
                     NewSubscriberGroup = lists:delete(Sub, SubscriberGroup),
                     %% retry with other members of this group
-                    publish_to_subscriber_groups(NewMsg, [{Group, NewSubscriberGroup}|Rest])
+                    publish_to_subscriber_groups(Msg, Policy, [{Group, NewSubscriberGroup}|Rest])
             end
     end.
 
--spec publish(flag(), module(), msg()) -> 'ok' | {'error', _}.
-publish(true, RegView, #vmq_msg{mountpoint=MP,
+filter_subscribers(Subscribers, random) ->
+    Subscribers;
+filter_subscribers(Subscribers, prefer_local) ->
+    Node = node(),
+    LocalSubscribers = 
+        lists:filter(fun({N, _, _}) when N == Node -> true;
+                        (_) -> false
+                     end, Subscribers),
+    case LocalSubscribers of
+        [] -> Subscribers;
+        _ -> LocalSubscribers
+    end.
+
+-spec publish(flag(), shared_subscription_policy(), module(), msg()) -> 'ok' | {'error', _}.
+publish(true, SGPolicy, RegView, #vmq_msg{mountpoint=MP,
                                 routing_key=Topic,
                                 payload=Payload,
                                 retain=IsRetain} = Msg) ->
@@ -323,18 +336,18 @@ publish(true, RegView, #vmq_msg{mountpoint=MP,
             %% retain delete action
             vmq_retain_srv:delete(MP, Topic),
             
-            publish(RegView, MP, Topic, fun publish/2, Msg#vmq_msg{retain=false}),
+            publish(RegView, SGPolicy, MP, Topic, fun publish/2, Msg#vmq_msg{retain=false}),
             ok;
         true ->
             %% retain set action
             vmq_retain_srv:insert(MP, Topic, Payload),
-            publish(RegView, MP, Topic, fun publish/2, Msg#vmq_msg{retain=false}),
+            publish(RegView, SGPolicy, MP, Topic, fun publish/2, Msg#vmq_msg{retain=false}),
             ok;
         false ->
-            publish(RegView, MP, Topic, fun publish/2, Msg),
+            publish(RegView, SGPolicy, MP, Topic, fun publish/2, Msg),
             ok
     end;
-publish(false, RegView, #vmq_msg{mountpoint=MP,
+publish(false, SGPolicy, RegView, #vmq_msg{mountpoint=MP,
                                  routing_key=Topic,
                                  payload=Payload,
                                  retain=IsRetain} = Msg) ->
@@ -343,15 +356,15 @@ publish(false, RegView, #vmq_msg{mountpoint=MP,
         true when (IsRetain == true) and (Payload == <<>>) ->
             %% retain delete action
             vmq_retain_srv:delete(MP, Topic),
-            publish(RegView, MP, Topic, fun publish/2, Msg#vmq_msg{retain=false}),
+            publish(RegView, SGPolicy, MP, Topic, fun publish/2, Msg#vmq_msg{retain=false}),
             ok;
         true when (IsRetain == true) ->
             %% retain set action
             vmq_retain_srv:insert(MP, Topic, Payload),
-            publish(RegView, MP, Topic, fun publish/2, Msg#vmq_msg{retain=false}),
+            publish(RegView, SGPolicy, MP, Topic, fun publish/2, Msg#vmq_msg{retain=false}),
             ok;
         true ->
-            publish(RegView, MP, Topic, fun publish/2, Msg),
+            publish(RegView, SGPolicy, MP, Topic, fun publish/2, Msg),
             ok;
         false ->
             {error, not_ready}
@@ -513,6 +526,7 @@ direct_plugin_exports(Mod) when is_atom(Mod) ->
     CAPPublish = vmq_config:get_env(allow_publish_during_netsplit, false),
     CAPSubscribe = vmq_config:get_env(allow_subscribe_during_netsplit, false),
     CAPUnsubscribe = vmq_config:get_env(allow_unsubscribe_during_netsplit, false),
+    SGPolicyConfig = vmq_config:get_env(shared_subscription_policy, prefer_local),
     RegView = vmq_config:get_env(default_reg_view, vmq_reg_trie),
     MountPoint = "",
     ClientId = fun(T) ->
@@ -555,6 +569,7 @@ direct_plugin_exports(Mod) when is_atom(Mod) ->
             %% - retain flag
             %% - trade-consistency flag
             %% - reg_view
+            %% - shared subscription policy
             Msg = #vmq_msg{
                      routing_key=Topic,
                      mountpoint=maps:get(mountpoint, Opts, MountPoint),
@@ -564,7 +579,8 @@ direct_plugin_exports(Mod) when is_atom(Mod) ->
                      dup=maps:get(dup, Opts, false),
                      retain=maps:get(retain, Opts, false)
                     },
-            publish(CAPPublish, RegView, Msg)
+            SGPolicy = maps:get(shared_subscription_policy, Opts, SGPolicyConfig),
+            publish(CAPPublish, SGPolicy, RegView, Msg)
     end,
 
     SubscribeFun =

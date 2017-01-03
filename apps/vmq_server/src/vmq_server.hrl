@@ -12,3 +12,4 @@
           persisted=false       :: flag()
          }).
 -type msg()             :: #vmq_msg{}.
+-type shared_subscription_policy() :: prefer_local | random.
