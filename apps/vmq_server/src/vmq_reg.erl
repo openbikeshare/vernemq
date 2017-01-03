@@ -297,12 +297,13 @@ publish_to_subscriber_groups(Msg, [{Group, SubscriberGroup}|Rest]) ->
                     publish_to_subscriber_groups(NewMsg, Rest)
             end;
         {Node, SubscriberId, QoS} = Sub ->
-            Term = {enq_sync, SubscriberId, [{deliver, QoS, NewMsg}], [opts]},
+            Term = {enqueue_many, SubscriberId, [{deliver, QoS, NewMsg}], #{states => [online]}},
             case vmq_cluster:remote_enqueue(Node, Term) of
                 ok ->
                     publish_to_subscriber_groups(NewMsg, Rest);
                 {error, Reason} ->
-                    lager:warning("can't publish for subscriber group to remote node ~p due to '~p'", [Node, Reason]),
+                    lager:warning("can't publish for subscriber group to remote node ~p due to '~p'",
+                                  [Node, Reason]),
                     NewSubscriberGroup = lists:delete(Sub, SubscriberGroup),
                     %% retry with other members of this group
                     publish_to_subscriber_groups(NewMsg, [{Group, NewSubscriberGroup}|Rest])

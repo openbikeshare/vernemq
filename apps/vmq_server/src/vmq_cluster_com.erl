@@ -167,7 +167,7 @@ process(<<"enq", L:32, Bin:L/binary, Rest/binary>>, St) ->
                                   CallerPid ! {Ref, {error, cant_remote_enqueue}}
                           end
                   end);
-        {CallerPid, Ref, {enq_sync, SubscriberId, Msgs, _Opts}} ->
+        {CallerPid, Ref, {enqueue_many, SubscriberId, Msgs, Opts}} ->
             spawn(fun() ->
                           try
                               case vmq_queue_sup_sup:get_queue_pid(SubscriberId) of
@@ -175,7 +175,7 @@ process(<<"enq", L:32, Bin:L/binary, Rest/binary>>, St) ->
                                       %% TODO, maybe replace with dedicated
                                       %% sync function - and maybe also call
                                       %% the message something else.
-                                      Reply = vmq_queue:enqueue_many(QueuePid, Msgs),
+                                      Reply = vmq_queue:enqueue_many(QueuePid, Msgs, Opts),
                                       CallerPid ! {Ref, Reply}
                               end
                           catch
