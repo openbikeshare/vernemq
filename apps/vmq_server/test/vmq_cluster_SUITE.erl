@@ -493,14 +493,14 @@ shared_subs_random_policy_test(Config) ->
 connect_shared_subscribers(Topic, Number, Nodes) ->
     [begin
          
-         Connect = packet:gen_connect("ss-subscriber-" ++ integer_to_list(I) ++ "-" ++ 
-                                          integer_to_list(erlang:unique_integer()),
+         {_, Port} = random_node(Nodes),
+         Connect = packet:gen_connect("ss-subscriber-" ++ integer_to_list(I) ++ "-node-" ++ 
+                                          integer_to_list(Port),
                                       [{keepalive, 60}, {clean_session, true}]),
          Connack = packet:gen_connack(0),
          Subscribe = packet:gen_subscribe(1, [Topic], 1),
          Suback = packet:gen_suback(1, 1),
          %% TODO: make it connect to random node instead
-         {_, Port} = random_node(Nodes),
          {ok, Socket} = packet:do_client_connect(Connect, Connack, [{port, Port}]),
          ok = gen_tcp:send(Socket, Subscribe),
          ok = packet:expect_packet(Socket, "suback", Suback),
