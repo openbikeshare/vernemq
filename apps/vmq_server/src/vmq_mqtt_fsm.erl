@@ -66,7 +66,7 @@
           max_client_id_size=100            :: non_neg_integer(),
 
           %% changeable by auth_on_register
-          shared_subscription_policy=prefer_local :: shared_subscription_policy(),
+          shared_subscription_policy=prefer_local :: sg_policy(),
           max_inflight_messages=20          :: non_neg_integer(), %% 0 means unlimited
           max_message_rate=0                :: non_neg_integer(), %% 0 means unlimited
           retry_interval=20000              :: pos_integer(),
@@ -219,9 +219,10 @@ wait_for_connect(_, State) ->
     {stop, any(), [mqtt_frame() | binary()]}.
 connected(#mqtt_publish{message_id=MessageId, topic=Topic,
                         qos=QoS, retain=IsRetain,
-                        payload=Payload}, State) ->
+                        payload=Payload},
+          #state{subscriber_id={MountPoint,_},
+                 shared_subscription_policy=SGPolicy} = State) ->
     DoThrottle = do_throttle(State),
-    #state{subscriber_id={MountPoint, _}} = State,
     %% we disallow Publishes on Topics prefixed with '$'
     %% this allows us to use such prefixes for e.g. '$SYS' Tree
     _ = vmq_metrics:incr_mqtt_publish_received(),
@@ -236,7 +237,8 @@ connected(#mqtt_publish{message_id=MessageId, topic=Topic,
                            retain=unflag(IsRetain),
                            qos=QoS,
                            mountpoint=MountPoint,
-                           msg_ref=msg_ref()},
+                           msg_ref=msg_ref(),
+                           sg_policy=SGPolicy},
             dispatch_publish(QoS, MessageId, Msg, State)
     end,
     case Ret of
@@ -311,15 +313,14 @@ connected(#mqtt_pubrec{message_id=MessageId}, State) ->
     end;
 connected(#mqtt_pubrel{message_id=MessageId}, State) ->
     #state{waiting_acks=WAcks, username=User, reg_view=RegView,
-           subscriber_id=SubscriberId, cap_settings=CAPSettings,
-           shared_subscription_policy=SGPolicy} = State,
+           subscriber_id=SubscriberId, cap_settings=CAPSettings} = State,
     %% qos2 flow
     _ = vmq_metrics:incr_mqtt_pubrel_received(),
     case maps:get({qos2, MessageId} , WAcks, not_found) of
         {#mqtt_pubrec{}, #vmq_msg{routing_key=Topic, qos=QoS, payload=Payload,
                                   retain=IsRetain} = Msg} ->
             HookArgs = [User, SubscriberId, QoS, Topic, Payload, unflag(IsRetain)],
-            case on_publish_hook(vmq_reg:publish(CAPSettings#cap_settings.allow_publish, SGPolicy, RegView, Msg), HookArgs) of
+            case on_publish_hook(vmq_reg:publish(CAPSettings#cap_settings.allow_publish, RegView, Msg), HookArgs) of
                 ok ->
                     {NewState, Msgs} =
                     handle_waiting_msgs(
@@ -656,11 +657,11 @@ auth_on_publish(User, SubscriberId, #vmq_msg{routing_key=Topic,
             {error, not_allowed}
     end.
 
--spec publish(cap_settings(), shared_subscription_policy(), module(), username(), subscriber_id(), msg()) ->  {ok, msg()} | {error, atom()}.
-publish(CAPSettings, SGPolicy, RegView, User, SubscriberId, Msg) ->
+-spec publish(cap_settings(), module(), username(), subscriber_id(), msg()) ->  {ok, msg()} | {error, atom()}.
+publish(CAPSettings, RegView, User, SubscriberId, Msg) ->
     auth_on_publish(User, SubscriberId, Msg,
                     fun(MaybeChangedMsg, HookArgs) ->
-                            case on_publish_hook(vmq_reg:publish(CAPSettings#cap_settings.allow_publish, SGPolicy, RegView, MaybeChangedMsg),
+                            case on_publish_hook(vmq_reg:publish(CAPSettings#cap_settings.allow_publish, RegView, MaybeChangedMsg),
                                             HookArgs) of
                                 ok -> {ok, MaybeChangedMsg};
                                 E -> E
@@ -691,9 +692,8 @@ dispatch_publish_(2, MessageId, Msg, State) ->
     list() | {error, not_allowed}.
 dispatch_publish_qos0(_MessageId, Msg, State) ->
     #state{username=User, subscriber_id=SubscriberId, proto_ver=Proto,
-           cap_settings=CAPSettings, reg_view=RegView,
-           shared_subscription_policy = SGPolicy} = State,
-    case publish(CAPSettings, SGPolicy, RegView, User, SubscriberId, Msg) of
+           cap_settings=CAPSettings, reg_view=RegView} = State,
+    case publish(CAPSettings, RegView, User, SubscriberId, Msg) of
         {ok, _} ->
             [];
         {error, not_allowed} when Proto == 4 ->
@@ -710,9 +710,8 @@ dispatch_publish_qos0(_MessageId, Msg, State) ->
     list() | {error, not_allowed}.
 dispatch_publish_qos1(MessageId, Msg, State) ->
         #state{username=User, subscriber_id=SubscriberId, proto_ver=Proto,
-               cap_settings=CAPSettings, reg_view=RegView,
-               shared_subscription_policy=SGPolicy} = State,
-        case publish(CAPSettings, SGPolicy, RegView, User, SubscriberId, Msg) of
+               cap_settings=CAPSettings, reg_view=RegView} = State,
+        case publish(CAPSettings, RegView, User, SubscriberId, Msg) of
         {ok, _} ->
             _ = vmq_metrics:incr_mqtt_puback_sent(),
             [#mqtt_puback{message_id=MessageId}];
@@ -884,12 +883,11 @@ prepare_frame(QoS, Msg, State) ->
 -spec maybe_publish_last_will(state()) -> ok.
 maybe_publish_last_will(#state{will_msg=undefined}) -> ok;
 maybe_publish_last_will(#state{subscriber_id=SubscriberId, username=User,
-                               will_msg=Msg, reg_view=RegView, cap_settings=CAPSettings,
-                               shared_subscription_policy=SGPolicy}) ->
+                               will_msg=Msg, reg_view=RegView, cap_settings=CAPSettings}) ->
     #vmq_msg{qos=QoS, routing_key=Topic, payload=Payload, retain=IsRetain} = Msg,
     HookArgs = [User, SubscriberId, QoS, Topic, Payload, IsRetain],
     _ = on_publish_hook(vmq_reg:publish(CAPSettings#cap_settings.allow_publish,
-                                        SGPolicy, RegView, Msg), HookArgs),
+                                        RegView, Msg), HookArgs),
     ok.
 
 -spec check_in_flight(state()) -> boolean().

@@ -24,7 +24,7 @@
          register_subscriber/4, %% used during testing
          delete_subscriptions/1,
          %% used in mqtt fsm handling
-         publish/4,
+         publish/3,
 
          %% used in :get_info/2
          get_session_pids/1,
@@ -268,7 +268,7 @@ register_session(SubscriberId, QueueOpts) ->
     SessionPresent = QueuePresent,
     {ok, SessionPresent, QPid}.
 
-publish(RegView, SGPolicy, MP, Topic, FoldFun, Msg) ->
+publish(RegView, MP, Topic, FoldFun, #vmq_msg{sg_policy = SGPolicy} = Msg) ->
     Acc = publish_fold_acc(Msg),
     {NewMsg, SubscriberGroups} = vmq_reg_view:fold(RegView, MP, Topic, FoldFun, Acc),
     publish_to_subscriber_groups(NewMsg, SGPolicy, SubscriberGroups).
@@ -323,8 +323,8 @@ filter_subscribers(Subscribers, prefer_local) ->
         _ -> LocalSubscribers
     end.
 
--spec publish(flag(), shared_subscription_policy(), module(), msg()) -> 'ok' | {'error', _}.
-publish(true, SGPolicy, RegView, #vmq_msg{mountpoint=MP,
+-spec publish(flag(), module(), msg()) -> 'ok' | {'error', _}.
+publish(true, RegView, #vmq_msg{mountpoint=MP,
                                 routing_key=Topic,
                                 payload=Payload,
                                 retain=IsRetain} = Msg) ->
@@ -336,18 +336,18 @@ publish(true, SGPolicy, RegView, #vmq_msg{mountpoint=MP,
             %% retain delete action
             vmq_retain_srv:delete(MP, Topic),
             
-            publish(RegView, SGPolicy, MP, Topic, fun publish/2, Msg#vmq_msg{retain=false}),
+            publish(RegView, MP, Topic, fun publish/2, Msg#vmq_msg{retain=false}),
             ok;
         true ->
             %% retain set action
             vmq_retain_srv:insert(MP, Topic, Payload),
-            publish(RegView, SGPolicy, MP, Topic, fun publish/2, Msg#vmq_msg{retain=false}),
+            publish(RegView, MP, Topic, fun publish/2, Msg#vmq_msg{retain=false}),
             ok;
         false ->
-            publish(RegView, SGPolicy, MP, Topic, fun publish/2, Msg),
+            publish(RegView, MP, Topic, fun publish/2, Msg),
             ok
     end;
-publish(false, SGPolicy, RegView, #vmq_msg{mountpoint=MP,
+publish(false, RegView, #vmq_msg{mountpoint=MP,
                                  routing_key=Topic,
                                  payload=Payload,
                                  retain=IsRetain} = Msg) ->
@@ -356,15 +356,15 @@ publish(false, SGPolicy, RegView, #vmq_msg{mountpoint=MP,
         true when (IsRetain == true) and (Payload == <<>>) ->
             %% retain delete action
             vmq_retain_srv:delete(MP, Topic),
-            publish(RegView, SGPolicy, MP, Topic, fun publish/2, Msg#vmq_msg{retain=false}),
+            publish(RegView, MP, Topic, fun publish/2, Msg#vmq_msg{retain=false}),
             ok;
         true when (IsRetain == true) ->
             %% retain set action
             vmq_retain_srv:insert(MP, Topic, Payload),
-            publish(RegView, SGPolicy, MP, Topic, fun publish/2, Msg#vmq_msg{retain=false}),
+            publish(RegView, MP, Topic, fun publish/2, Msg#vmq_msg{retain=false}),
             ok;
         true ->
-            publish(RegView, SGPolicy, MP, Topic, fun publish/2, Msg),
+            publish(RegView, MP, Topic, fun publish/2, Msg),
             ok;
         false ->
             {error, not_ready}
@@ -577,10 +577,10 @@ direct_plugin_exports(Mod) when is_atom(Mod) ->
                      msg_ref=vmq_mqtt_fsm:msg_ref(),
                      qos = maps:get(qos, Opts, 0),
                      dup=maps:get(dup, Opts, false),
-                     retain=maps:get(retain, Opts, false)
+                     retain=maps:get(retain, Opts, false),
+                     sg_policy=maps:get(shared_subscription_policy, Opts, SGPolicyConfig)
                     },
-            SGPolicy = maps:get(shared_subscription_policy, Opts, SGPolicyConfig),
-            publish(CAPPublish, SGPolicy, RegView, Msg)
+            publish(CAPPublish, RegView, Msg)
     end,
 
     SubscribeFun =

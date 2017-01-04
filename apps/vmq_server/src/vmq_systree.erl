@@ -119,13 +119,13 @@ handle_info(timeout, true) ->
             MsgTmpl = #vmq_msg{
                          mountpoint=vmq_config:get_env(systree_mountpoint, ""),
                          qos=vmq_config:get_env(systree_qos, 0),
-                         retain=vmq_config:get_env(systree_retain, false)
+                         retain=vmq_config:get_env(systree_retain, false),
+                         sg_policy=vmq_config:get_env(shared_subscription_policy, prefer_local)
                         },
             lists:foreach(
               fun({_Type, Metric, Val}) ->
                       CAPPublish = true,
-                      SGPolicy = random,
-                      vmq_reg:publish(CAPPublish, SGPolicy, RegView, MsgTmpl#vmq_msg{
+                      vmq_reg:publish(CAPPublish, RegView, MsgTmpl#vmq_msg{
                                         routing_key=key(Prefix, Metric),
                                         payload=val(Val),
                                         msg_ref=vmq_mqtt_fsm:msg_ref()
