@@ -32,6 +32,7 @@ VerneMQ implements the MQTT 3.1 and 3.1.1 specifications, integration of MQTT-SN
 * Extensible Plugin architecture
 * Multiple Sessions per ClientId
 * Session Balancing
+* Shared Subscriptions
 * Message load regulation
 * Message load shedding (for system protection)
 * Offline Message Storage (based on LevelDB)
