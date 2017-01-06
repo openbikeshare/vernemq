@@ -172,9 +172,6 @@ process(<<"enq", L:32, Bin:L/binary, Rest/binary>>, St) ->
                           try
                               case vmq_queue_sup_sup:get_queue_pid(SubscriberId) of
                                   QueuePid when is_pid(QueuePid) ->
-                                      %% TODO, maybe replace with dedicated
-                                      %% sync function - and maybe also call
-                                      %% the message something else.
                                       Reply = vmq_queue:enqueue_many(QueuePid, Msgs, Opts),
                                       CallerPid ! {Ref, Reply}
                               end

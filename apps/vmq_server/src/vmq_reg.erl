@@ -280,7 +280,7 @@ publish_to_subscriber_groups(Msg, Policy, SubscriberGroups) when is_map(Subscrib
     publish_to_subscriber_groups(Msg, Policy, maps:to_list(SubscriberGroups));
 publish_to_subscriber_groups(_,_, []) -> ok;
 publish_to_subscriber_groups(Msg, Policy, [{Group, []}|Rest]) ->
-    lager:info("can't publish to subscriber group ~p due to no subscriber available", [Group]),
+    lager:debug("can't publish to shared subscription ~p, no subscribers: ~p", [Group, Msg]),
     publish_to_subscriber_groups(Msg, Policy, Rest);
 publish_to_subscriber_groups(Msg, Policy, [{Group, SubscriberGroup}|Rest]) ->
     Subscribers = filter_subscribers(SubscriberGroup, Policy),
@@ -302,7 +302,7 @@ publish_to_subscriber_groups(Msg, Policy, [{Group, SubscriberGroup}|Rest]) ->
                 ok ->
                     publish_to_subscriber_groups(Msg, Policy, Rest);
                 {error, Reason} ->
-                    lager:warning("can't publish to subscriber group on remote node ~p due to '~p'",
+                    lager:debug("can't publish to shared subscription on remote node ~p due to '~p'",
                                   [Node, Reason]),
                     NewSubscriberGroup = lists:delete(Sub, SubscriberGroup),
                     %% retry with other members of this group
