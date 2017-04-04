@@ -33,7 +33,7 @@ where_expr <- where_token x:logic_expr xs:logic_expr_rest*
 [proplists:get_value(x, Node)] ++ proplists:get_value(xs, Node, [])
 `;
 
-logic_expr <- _ '(' _ x:logic_expr xs:logic_expr_rest* _ ')' _ / _ left:expr _ op:operator _ right:expr _
+logic_expr <- _ '(' _ x:logic_expr xs:logic_expr_rest* _ ')' _ / _ left:expr _ op:like_token _ right:like_string  _ / _ left:expr _ op:operator _ right:expr _
 `
 case proplists:get_value(x, Node) of
   undefined ->
@@ -60,7 +60,7 @@ case Node of
 end
 `;
 
-operator <- '!=' / '=<' / '>=' / '=' / '>' / '<' / like_token
+operator <- '!=' / '=<' / '>=' / '=' / '>' / '<'
 `
 case Node of
   <<"!=">> -> 'not_equals';
@@ -68,11 +68,11 @@ case Node of
   <<"<">> -> 'lesser';
   <<"=<">> -> 'lesser_equals';
   <<">">> -> 'greater';
-  <<">=">> -> 'greater_equals';
-  [<<"LIKE">>, []] -> 'like'
+  <<">=">> -> 'greater_equals'
 end
 `;
 
+like_token <- 'LIKE' `'like'`;
 expr <- number / bool / identifier / string ~;
 number <- integer frac? exp?
 `
@@ -94,12 +94,17 @@ bool <- true / false ~;
 true <- 'true' `true`;
 false <- 'false' `false`;
 string <- '"' chars:(!'"' ("\\\\" / '\\"' / .))* '"' `iolist_to_binary(proplists:get_value(chars, Node))`;
+like_string <- '"' chars:(!'"' ("\\\\" / '\\"' / .))* '"'
+`
+R1 = proplists:get_value(chars, Node),
+R2 = re:replace(R1, <<"%">>, <<".*">>, [global]),
+re:replace(R2, <<"_">>, <<".">>, [global,{return, binary}])
+`;
 
 select_token <- 'SELECT' !ident_rest ~;
 separator_token <- ',' ~;
 from_token <- 'FROM' !ident_rest ~;
 where_token <- 'WHERE' !ident_rest ~;
-like_token <- 'LIKE' !ident_rest ~;
 or_token <- 'OR' !ident_rest ~;
 and_token <- 'AND' !ident_rest ~;
 orderby_token <- 'ORDER BY' !ident_rest ~;
