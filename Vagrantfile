@@ -3,7 +3,10 @@
 
 $script = <<SCRIPT
 
-if [ "$2" = "apt" ]; then
+MAKE=make
+
+case $2 in
+"apt")
     sudo apt-get update
     sudo DEBIAN_FRONTEND=noninteractive apt-get -y upgrade
     if [ "$1" = "precise" ]; then
@@ -18,11 +21,22 @@ if [ "$2" = "apt" ]; then
         sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.8 50
     fi
     sudo apt-get -y install curl build-essential git packaging-dev libssl-dev openssl libncurses5-dev
-elif [ "$2" = "yum" ]; then
+    ;;  
+"yum")
     sudo yum -y update
     sudo yum -y groupinstall 'Development Tools'
     sudo yum -y install curl git ncurses-devel openssl openssl-devel
-fi
+    ;;
+"pkg")
+    sudo pkg install -y curl gmake gcc bash editors/emacs-nox11 git
+    export CC=clang CXX=clang CFLAGS="-g -O3 -fstack-protector" LDFLAGS="-fstack-protector"
+    # compilation options
+    echo 'KERL_CONFIGURE_OPTIONS="--disable-native-libs --enable-vm-probes --with-dynamic-trace=dtrace --with-ssl=/usr/local --enable-kernel-poll --without-odbc --enable-threads --enable-sctp --enable-smp-support"' > ~/.kerlrc
+
+
+    MAKE=gmake
+    ;;
+esac
 
     curl -O https://raw.githubusercontent.com/yrashk/kerl/master/kerl
     chmod a+x kerl
@@ -41,7 +55,7 @@ fi
     fi
     git checkout $3
 
-    make rel
+    $MAKE rel
 SCRIPT
 
 $vernemq_release = '1.0.0'
@@ -54,6 +68,7 @@ $configs = {
     :precise => {:sys => :apt, :img => 'ubuntu/precise64'},
     :centos7 => {:sys => :yum, :img => 'puppetlabs/centos-7.0-64-nocm'},
     :xenial => {:sys => :apt, :img => 'ubuntu/xenial64'},
+    :freebsd => {:sys => :pkg, :img => 'freebsd/FreeBSD-11.0-STABLE', :shell => "/bin/sh"},
 }
 
 Vagrant.configure(2) do |config|
@@ -62,6 +77,7 @@ Vagrant.configure(2) do |config|
             primary: dist_config[:primary],
             autostart: dist_config[:primary] do |c|
             c.vm.box = dist_config[:img]
+            c.ssh.shell = dist_config[:shell] || "bash"
             c.vm.synced_folder ".", "/vagrant", type: "rsync"
             c.vm.provision :shell do |s|
                 s.privileged = false
