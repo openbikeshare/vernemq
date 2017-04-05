@@ -62,6 +62,7 @@ Vagrant.configure(2) do |config|
             primary: dist_config[:primary],
             autostart: dist_config[:primary] do |c|
             c.vm.box = dist_config[:img]
+            c.vm.synced_folder ".", "/vagrant", type: "rsync"
             c.vm.provision :shell do |s|
                 s.privileged = false
                 s.inline = $script
