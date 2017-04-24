@@ -33,6 +33,12 @@ case $2 in
     # compilation options
     echo 'KERL_CONFIGURE_OPTIONS="--disable-native-libs --enable-vm-probes --with-dynamic-trace=dtrace --with-ssl=/usr/local --enable-kernel-poll --without-odbc --enable-threads --enable-sctp --enable-smp-support"' > ~/.kerlrc
 
+    # Make sure the machine has a hostname
+    if ! grep -Fxq "hostname=freebsd" /etc/rc.conf
+    then
+        sudo sh -c $(echo hostname="freebsd" >> /etc/rc.conf)
+        sudo hostname freebsd
+    fi
 
     MAKE=gmake
     ;;
