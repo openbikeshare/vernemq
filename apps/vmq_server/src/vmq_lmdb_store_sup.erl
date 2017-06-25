@@ -25,7 +25,7 @@
 %% Supervisor callbacks
 -export([init/1]).
 
--define(NR_OF_BUCKETS, 4).
+-define(NR_OF_BUCKETS, 12).
 -define(TABLE, vmq_lmdb_store_buckets).
 
 %% ===================================================================
@@ -34,8 +34,18 @@
 
 start_link() ->
     {ok, Pid} = supervisor:start_link({local, ?MODULE}, ?MODULE, []),
+    Opts = vmq_config:get_env(msg_store_opts, []),
+    DataDir1 = proplists:get_value(store_dir, Opts, "data/msgstore"),
+    filelib:ensure_dir(filename:join(DataDir1, "msg_store_dummy")),
+
+    {ok, Env} = elmdb:env_open(DataDir1,
+                               [{max_dbs, ?NR_OF_BUCKETS}
+                                %% write_map,
+                                %% map_async
+                                 %% no_meta_sync
+                               ]),
     [begin
-         {ok, _} = supervisor:start_child(Pid, child_spec(I))
+         {ok, _} = supervisor:start_child(Pid, child_spec({I, Env}))
      end || I <- lists:seq(1, ?NR_OF_BUCKETS)],
     ok = vmq_plugin_mgr:enable_module_plugin(vmq_lmdb_store, msg_store_write, 2),
     ok = vmq_plugin_mgr:enable_module_plugin(vmq_lmdb_store, msg_store_delete, 2),

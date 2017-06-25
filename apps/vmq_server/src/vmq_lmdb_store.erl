@@ -45,8 +45,8 @@
 %%%===================================================================
 %%% API
 %%%===================================================================
-start_link(Id) ->
-    gen_server:start_link(?MODULE, [Id], []).
+start_link({Id,Env}) ->
+    gen_server:start_link(?MODULE, [{Id, Env}], []).
 
 msg_store_write(SubscriberId, #vmq_msg{msg_ref=MsgRef} = Msg) ->
     call(MsgRef, {write, SubscriberId, Msg}).
@@ -110,19 +110,15 @@ call(Key, Req) ->
 %%                     {stop, Reason}
 %% @end
 %%--------------------------------------------------------------------
-init([InstanceId]) ->
+init([{InstanceId,Env}]) ->
     %% Initialize random seed
     rnd:seed(os:timestamp()),
 
     Opts = vmq_config:get_env(msg_store_opts, []),
-    DataDir1 = proplists:get_value(store_dir, Opts, "data/msgstore"),
-    DataRoot = filename:join(DataDir1, integer_to_list(InstanceId)),
-
-    %% Get the data root directory
-    filelib:ensure_dir(filename:join(DataRoot, "msg_store_dummy")),
-    S0 = #state{data_root = DataRoot},
+    S0 = #state{},
     process_flag(trap_exit, true),
-    case open_db(Opts, S0) of
+    Name = integer_to_binary(InstanceId),
+    case open_db(Opts, S0, Name, Env) of
         {ok, State} ->
             case check_store(State) of
                 0 -> ok; % no unreferenced images
@@ -161,6 +157,7 @@ handle_call({refcount, MsgRef}, _From, State) ->
     end,
     {reply, RefCount, State};
 handle_call(Request, _From, State) ->
+    
     {reply, handle_req(Request, State), State}.
 
 %%--------------------------------------------------------------------
@@ -200,8 +197,7 @@ handle_info(_Info, State) ->
 %% @spec terminate(Reason, State) -> void()
 %% @end
 %%--------------------------------------------------------------------
-terminate(_Reason, #state{ref={Env,_Dbi}}) ->
-    ok = elmdb:env_close(Env),
+terminate(_Reason, #state{ref={_Env,_Dbi}}) ->
     ok.
 
 %%--------------------------------------------------------------------
@@ -220,15 +216,10 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 
 %% @private
-open_db(_Opts, State0) ->
-    case elmdb:env_open(State0#state.data_root, [write_map, map_async, no_meta_sync]) of
-        {ok, Env} ->
-            case elmdb:db_open(Env, [create]) of
-                {ok, Dbi} ->
-                    {ok, State0#state{ref = {Env, Dbi}}};
-                {error, Reason} ->
-                    {error, Reason}
-            end;
+open_db(_Opts, State0, Name, Env) ->
+    case elmdb:db_open(Env, Name, [create]) of
+        {ok, Dbi} ->
+            {ok, State0#state{ref = {Env, Dbi}}};
         {error, Reason} ->
             {error, Reason}
     end.
