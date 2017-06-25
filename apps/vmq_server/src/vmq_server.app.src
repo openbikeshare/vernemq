@@ -20,7 +20,8 @@
                   mzmetrics,
                   jsx,
                   rand_compat,
-                  gen_server2
+                  gen_server2,
+                  elmdb
                  ]},
   {mod, { vmq_server_app, []}},
   {env, [
@@ -91,9 +92,9 @@
         ]},
 
       % default message store opts
-      {msg_store_childspecs, [{vmq_lvldb_store_sup,
-                               {vmq_lvldb_store_sup, start_link, []},
-                               permanent, 5000, supervisor, [vmq_lvldb_store_sup]}]},
+      {msg_store_childspecs, [{vmq_lmdb_store_sup,
+                               {vmq_lmdb_store_sup, start_link, []},
+                               permanent, 5000, supervisor, [vmq_lmdb_store_sup]}]},
       {msg_store_opts, [
                         {store_dir, "./data/msgstore"},
                         {open_retries, 30},
