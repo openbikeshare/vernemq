@@ -123,7 +123,8 @@ init([]) ->
     _ = ets:new(vmq_trie, [{keypos, 2}|DefaultETSOpts]),
     _ = ets:new(vmq_trie_node, [{keypos, 2}|DefaultETSOpts]),
     _ = ets:new(vmq_trie_topic, [{keypos, 1}|DefaultETSOpts]),
-    _ = ets:new(vmq_trie_subs, [bag|DefaultETSOpts]),
+    _ = ets:new(vmq_trie_subs, [duplicate_bag|DefaultETSOpts]),
+    _ = ets:new(vmq_trie_subs_dups, DefaultETSOpts),
     _ = ets:new(vmq_trie_remote_subs, [{keypos, 1}|DefaultETSOpts]),
     Self = self(),
     spawn_link(
@@ -419,13 +420,27 @@ trie_delete_path(MP, [{Node, Word, _}|RestPath]) ->
     end.
 
 add_subscriber_group(MP, Node, Group, Topic, SubscriberId, QoS) ->
-    ets:insert(vmq_trie_subs, {{MP, Group, Topic}, {Node, Group, SubscriberId, QoS}}).
+    E = {{MP, Group, Topic}, {Node, Group, SubscriberId, QoS}},
+    case ets:update_counter(vmq_trie_subs_dups, E, 1, {E, 0}) of
+        1 ->
+            ets:insert(vmq_trie_subs, E);
+        Val when Val > 1 ->
+            true
+    end.
 
 del_subscriber_group(MP, Node, Group, Topic, SubscriberId, QoS) ->
-    ets:delete_object(vmq_trie_subs, {{MP, Group, Topic}, {Node, Group, SubscriberId, QoS}}).
+    E = {{MP, Group, Topic}, {Node, Group, SubscriberId, QoS}},
+    ets:delete(vmq_trie_subs_dups, E),
+    ets:delete_object(vmq_trie_subs, E).
 
 add_subscriber(MP, Topic, SubscriberId, QoS) ->
-    ets:insert(vmq_trie_subs, {{MP, Topic}, {SubscriberId, QoS}}).
+    E = {{MP, Topic}, {SubscriberId, QoS}},
+    case ets:update_counter(vmq_trie_subs_dups, E, 1, {E, 0}) of
+        1 ->
+            ets:insert(vmq_trie_subs, E);
+        Val when Val > 1 ->
+            true
+    end.
 
 add_remote_subscriber(MP, Topic, Node) ->
     Key = {MP, Topic},
@@ -448,7 +463,9 @@ get_remote_subscribers(MP, Topic) ->
 
 
 del_subscriber(MP, Topic, SubscriberId, QoS) ->
-    ets:delete_object(vmq_trie_subs, {{MP, Topic}, {SubscriberId, QoS}}).
+    E = {{MP, Topic}, {SubscriberId, QoS}},
+    ets:delete(vmq_trie_subs_dups, E),
+    ets:delete_object(vmq_trie_subs, E).
 
 del_remote_subscriber(MP, Topic, Node) ->
     Key = {MP, Topic},
