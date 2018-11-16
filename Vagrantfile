@@ -36,7 +36,7 @@ fi
         git checkout master
         git pull
     else 
-        git clone git://github.com/erlio/vernemq vernemq 
+        git clone git://github.com/vernemq/vernemq vernemq
         cd vernemq
     fi
     git checkout $3
