@@ -84,10 +84,20 @@ start_all_pools([{pgsql, ProviderConfig}|Rest], Acc) ->
                        Database = proplists:get_value(database, WorkerArgs),
                        Username = proplists:get_value(user, WorkerArgs),
                        Password = proplists:get_value(password, WorkerArgs),
-                       epgsql:connect(Hostname, Username, Password, [
-                           {database, Database},
-                           {port, Port}
-                       ])
+                       Ssl = proplists:get_value(ssl, WorkerArgs, false),
+                       SslOpts =
+                       case Ssl of
+                           true ->
+                               maps:filter(fun(_, V) -> V =/= undefined end,
+                                           #{certfile => proplists:get_value(certfile, WorkerArgs),
+                                             cacertfile => proplists:get_value(cafile, WorkerArgs),
+                                             keyfile => proplists:get_value(keyfile, WorkerArgs)})
+                       end,
+                       Opts = maps:merge(#{database => Database,
+                                           port => Port,
+                                           ssl => Ssl},
+                                         SslOpts),
+                       epgsql:connect(Hostname, Username, Password, Opts)
                end,
     TerminateFun = fun(Pid) -> ok = epgsql:close(Pid) end,
     WrapperArgs = [{reconnect_timeout, 1000},
