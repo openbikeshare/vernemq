@@ -146,7 +146,7 @@
 %% @doc Whether to redirect error_logger messages into lager -
 %% defaults to true
 {mapping, "log.error.redirect", "lager.error_logger_redirect", [
-                                                                {default, on},
+                                                                {default, off},
                                                                 {datatype, flag},
                                                                 hidden
                                                                ]}.
