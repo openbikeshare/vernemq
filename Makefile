@@ -1,6 +1,6 @@
 BASE_DIR         = $(shell pwd)
 ERLANG_BIN       = $(shell dirname $(shell which erl))
-GIT_VERSION      = $(shell git describe --tags)
+GIT_VERSION      = $(shell git describe --tags --always)
 NOW              = $(shell date +%s)
 OS               = $(shell uname -s)
 OVERLAY_VARS    ?=
