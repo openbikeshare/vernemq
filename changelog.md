@@ -4,6 +4,9 @@
   (#1292).
 - Fix MQTT 5.0 bug causing LWT not being sent when client disconnected with
   Disconnect with Will Message (0x04) (#1291).
+- Add new `on_deliver/6` and `on_deliver_m5/7` hooks which adds QoS and retained
+  information to the parameters. The old variants are deprecated and will be
+  removed in the next major version.
 
 ## VerneMQ 1.9.1
 
