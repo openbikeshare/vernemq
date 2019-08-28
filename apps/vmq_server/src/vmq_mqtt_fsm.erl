@@ -963,11 +963,11 @@ prepare_frame(#deliver{qos=QoS, msg_id=MsgId, msg=Msg}, State) ->
     end.
 
 on_deliver_hook(User, SubscriberId, QoS, Topic, Payload, IsRetain) ->
-    HookArgs = [User, SubscriberId, Topic, Payload],
-    case vmq_plugin:all_till_ok(on_deliver, HookArgs) of
+    HookArgs0 = [User, SubscriberId, Topic, Payload],
+    case vmq_plugin:all_till_ok(on_deliver, HookArgs0) of
         {error, _} ->
-            HookArgs = [User, SubscriberId, QoS, Topic, Payload, IsRetain],
-            vmq_plugin:all_till_ok(on_deliver, HookArgs);
+            HookArgs1 = [User, SubscriberId, QoS, Topic, Payload, IsRetain],
+            vmq_plugin:all_till_ok(on_deliver, HookArgs1);
         Other -> Other
     end.
 
