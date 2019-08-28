@@ -7,6 +7,8 @@
 - Add new `on_deliver/6` and `on_deliver_m5/7` hooks which adds QoS and retained
   information to the parameters. The old variants are deprecated and will be
   removed in the next major version.
+- Add new `on_client_expired/1` hook which is called when an offline client
+  expires and the client state is deleted.
 
 ## VerneMQ 1.9.1
 
