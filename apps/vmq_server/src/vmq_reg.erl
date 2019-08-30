@@ -722,18 +722,18 @@ direct_plugin_exports(Mod) when is_atom(Mod) ->
     CAPUnsubscribe = vmq_config:get_env(allow_unsubscribe_during_netsplit, false),
     SGPolicyConfig = vmq_config:get_env(shared_subscription_policy, prefer_local),
     RegView = vmq_config:get_env(default_reg_view, vmq_reg_trie),
-    case direct_plugin_exports(#{mountpoint => "",
-                                 cap_publish => CAPPublish,
-                                 cap_subscribe => CAPSubscribe,
-                                 cap_unsubscribe => CAPUnsubscribe,
-                                 sg_policy => SGPolicyConfig,
-                                 reg_view => RegView}) of
+    case direct_plugin_exports(Mod, #{mountpoint => "",
+                                      cap_publish => CAPPublish,
+                                      cap_subscribe => CAPSubscribe,
+                                      cap_unsubscribe => CAPUnsubscribe,
+                                      sg_policy => SGPolicyConfig,
+                                      reg_view => RegView}) of
         {error, _} = E ->
             E;
         {ok, #{register_fun := RegFun,
                publish_fun := PubFun,
                subscribe_fun := SubFun,
-               unusbscribe_fun := UnsubFun}} ->
+               unsubscribe_fun := UnsubFun}} ->
             {RegFun, PubFun, {SubFun, UnsubFun}}
     end.
 
@@ -752,20 +752,23 @@ direct_plugin_exports(LogName, Opts) ->
     Mountpoint = maps:get(mountpoint, Opts, ""),
     RegView = maps:get(reg_view, Opts, vmq_reg_trie),
 
-    ClientId = fun(T) ->
-                       list_to_binary(
-                         base64:encode_to_string(
-                           integer_to_binary(
-                             erlang:phash2(T)
-                            )
-                          ))
-               end,
     CallingPid = self(),
-    SubscriberId = {Mountpoint, ClientId(CallingPid)},
+    ClientIdDef = list_to_binary(
+                    base64:encode_to_string(
+                      integer_to_binary(
+                        erlang:phash2(CallingPid)))),
+    ClientId = maps:get(client_id, Opts, ClientIdDef),
+    SubscriberId = {Mountpoint, ClientId},
+    MaybeWaitTillReady =
+        case maps:get(wait_till_ready, Opts, undefined) of
+            undefined -> fun wait_til_ready/0;
+            true -> fun wait_til_ready/0;
+            false -> fun() -> ok end
+        end,
     RegisterFun =
     fun() ->
             PluginPid = self(),
-            wait_til_ready(),
+            MaybeWaitTillReady(),
             PluginSessionPid = spawn_link(
                                  fun() ->
                                          monitor(process, PluginPid),
@@ -783,7 +786,7 @@ direct_plugin_exports(LogName, Opts) ->
     fun([W|_] = Topic, Payload, Opts_) when is_binary(W)
                                             and is_binary(Payload)
                                             and is_map(Opts) ->
-            wait_til_ready(),
+            MaybeWaitTillReady(),
             %% allow a plugin developer to override
             %% - mountpoint
             %% - dup flag
@@ -801,23 +804,23 @@ direct_plugin_exports(LogName, Opts) ->
                      retain=maps:get(retain, Opts, false),
                      sg_policy=maps:get(shared_subscription_policy, Opts, SGPolicy)
                     },
-            publish(CAPPublish, RegView, ClientId(CallingPid), Msg)
+            publish(CAPPublish, RegView, ClientId, Msg)
     end,
 
     SubscribeFun =
     fun([W|_] = Topic) when is_binary(W) ->
-            wait_til_ready(),
+            MaybeWaitTillReady(),
             CallingPid = self(),
-            subscribe(CAPSubscribe, {Mountpoint, ClientId(CallingPid)}, [{Topic, 0}]);
+            subscribe(CAPSubscribe, {Mountpoint, ClientId}, [{Topic, 0}]);
        (_) ->
             {error, invalid_topic}
     end,
 
     UnsubscribeFun =
     fun([W|_] = Topic) when is_binary(W) ->
-            wait_til_ready(),
+            MaybeWaitTillReady(),
             CallingPid = self(),
-            unsubscribe(CAPUnsubscribe, {Mountpoint, ClientId(CallingPid)}, [Topic]);
+            unsubscribe(CAPUnsubscribe, {Mountpoint, ClientId}, [Topic]);
        (_) ->
             {error, invalid_topic}
     end,
@@ -825,7 +828,7 @@ direct_plugin_exports(LogName, Opts) ->
            publish_fun => PublishFun,
            subscribe_fun => SubscribeFun,
            unsubscribe_fun => UnsubscribeFun,
-           client_id => ClientId(CallingPid)}}.
+           client_id => ClientId}}.
 
 
 subscribe_subscriber_changes() ->
