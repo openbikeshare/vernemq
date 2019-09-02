@@ -446,7 +446,7 @@ offline(expire_session, #state{id=SId, offline=#queue{queue=Q}} = State) ->
     %% session has expired cleanup and go down
     vmq_reg:delete_subscriptions(SId),
     cleanup_queue(SId, Q),
-    _ = vmq_plugin:all(on_client_expired, [SId]),
+    _ = vmq_plugin:all(on_session_expired, [SId]),
     _ = vmq_metrics:incr_queue_unhandled(queue:len(Q)),
     State1 = publish_last_will(State),
     {stop, normal, State1};

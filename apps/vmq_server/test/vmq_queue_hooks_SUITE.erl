@@ -18,7 +18,7 @@
          hook_on_client_gone/1,
          hook_on_client_offline/1,
          hook_on_client_wakeup/1,
-         hook_on_client_expired/1,
+         hook_on_session_expired/1,
          hook_on_offline_message/5]).
 
 -ifdef(nowarn_gen_fsm).
@@ -122,7 +122,7 @@ queue_hooks_lifecycle_test4(_) ->
     ok = hook_called(on_client_offline),
     QPid = vmq_queue_sup_sup:get_queue_pid({"", <<"queue-client">>}),
     ok = gen_fsm:send_event(QPid, expire_session),
-    ok = hook_called(on_client_expired).
+    ok = hook_called(on_session_expired).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Hooks (as explicit as possible)
@@ -154,9 +154,9 @@ hook_on_client_offline({"", <<"queue-client">>}) ->
 hook_on_client_offline(_) ->
     ok.
 
-hook_on_client_expired({"", <<"queue-client">>}) ->
-    ets:insert(?MODULE, {on_client_expired, true});
-hook_on_client_expired(_) ->
+hook_on_session_expired({"", <<"queue-client">>}) ->
+    ets:insert(?MODULE, {on_session_expired, true});
+hook_on_session_expired(_) ->
     ok.
 
 hook_on_offline_message({"", <<"queue-client">>}, 1,
@@ -191,7 +191,7 @@ enable_queue_hooks() ->
     vmq_plugin_mgr:enable_module_plugin(
       on_offline_message, ?MODULE, hook_on_offline_message, 5),
     vmq_plugin_mgr:enable_module_plugin(
-      on_client_expired, ?MODULE, hook_on_client_expired, 1).
+      on_session_expired, ?MODULE, hook_on_session_expired, 1).
 
 disable_queue_hooks() ->
     vmq_plugin_mgr:disable_module_plugin(
@@ -203,4 +203,4 @@ disable_queue_hooks() ->
     vmq_plugin_mgr:disable_module_plugin(
       on_offline_message, ?MODULE, hook_on_offline_message, 5),
     vmq_plugin_mgr:disable_module_plugin(
-      on_client_expired, ?MODULE, hook_on_client_expired, 1).
+      on_session_expired, ?MODULE, hook_on_session_expired, 1).
