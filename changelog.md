@@ -4,6 +4,9 @@
   (#1292).
 - Fix MQTT 5.0 bug causing LWT not being sent when client disconnected with
   Disconnect with Will Message (0x04) (#1291).
+- Add new `max_last_will_delay` value `client` which means the value from the
+  client is used instead of being overriden by the broker. This `client` value
+  is now the default. This setting only applies to MQTT 5.0 clients.
 
 ## VerneMQ 1.9.1
 
