@@ -5,6 +5,9 @@
   now handled and the connection is terminated gracefully (#1317).
 - Fix bug which caused clients MQTT bridges using protocol versions (131 and
   132) to be unable to connect (#1306).
+- Add hidden option `response_timeout` to `vmq_webhooks` endpoints. With this
+  the time `vmq_webhooks` waits for a response from the remote endpoint can be
+  configured. Default is 5000 milliseconds.
 
 ## VerneMQ 1.9.2
 
